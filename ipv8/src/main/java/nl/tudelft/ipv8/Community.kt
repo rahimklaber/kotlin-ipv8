@@ -16,7 +16,7 @@ import nl.tudelft.ipv8.util.hexToBytes
 import java.util.*
 import kotlin.random.Random
 
-private val logger = KotlinLogging.logger {}
+val logger = KotlinLogging.logger {}
 
 abstract class Community : Overlay {
     protected val prefix: ByteArray
@@ -377,9 +377,11 @@ abstract class Community : Overlay {
     }
 
     internal fun onIntroductionResponsePacket(packet: Packet) {
-        val (peer, payload) =
-            packet.getAuthPayload(IntroductionResponsePayload.Deserializer)
-        onIntroductionResponse(peer, payload)
+        kotlin.runCatching {
+            val (peer, payload) =
+                packet.getAuthPayload(IntroductionResponsePayload.Deserializer)
+            onIntroductionResponse(peer, payload)
+        }
     }
 
     internal fun onPuncturePacket(packet: Packet) {

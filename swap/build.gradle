@@ -1,0 +1,90 @@
+//
+//apply plugin: 'application'
+//
+//apply plugin: 'kotlin'
+
+plugins {
+    id 'org.openjfx.javafxplugin' version '0.0.11'
+    id 'kotlin'
+    id 'application'
+}
+mainClassName = 'nl.tudelft.ipv8.jvm.swap.ApplicationKt'
+
+repositories {
+}
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+dependencies {
+    implementation project(':ipv8-jvm')
+    implementation "com.goterl:lazysodium-java:5.0.1"
+
+    //settigns
+    implementation "com.russhwolf:multiplatform-settings-no-arg:0.8.1"
+    //xlm
+    implementation 'com.github.stellar:java-stellar-sdk:0.31.0'
+    //btc
+    implementation 'fr.acinq.bitcoin:bitcoin-kmp-jvm:0.8.2'
+
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutines_version"
+    implementation "org.jetbrains.kotlin:kotlin-reflect:$kotlin_version"
+
+    // Logging
+    implementation 'io.github.microutils:kotlin-logging:1.7.7'
+
+    implementation "com.squareup.sqldelight:sqlite-driver:$sqldelight_version"
+
+
+    // UI
+    implementation 'no.tornado:tornadofx:1.7.20'
+
+}
+javafx {
+    modules = [ 'javafx.controls', 'javafx.fxml' ]
+}
+run {
+    systemProperties System.getProperties()
+}
+
+//import org.jetbrains.compose.compose
+//import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+//import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+//
+//plugins {
+//    kotlin("jvm")
+//    id("org.jetbrains.compose")
+//}
+//
+//group = "org.jetbrains.compose.demo.falling"
+//version = "1.0"
+//
+//repositories {
+//    mavenCentral()
+//    google()
+//    maven { url = uri("https://maven.pkg.jetbrains.space/public/p/compose/dev") }
+//}
+//
+//dependencies {
+//    implementation(compose.desktop.currentOs)
+//}
+//
+//tasks.withType<KotlinCompile>() {
+//    kotlinOptions.jvmTarget = "11"
+//    kotlinOptions.allWarningsAsErrors = true
+//    kotlinOptions.freeCompilerArgs += "-Xopt-in=kotlin.RequiresOptIn"
+//}
+//
+//compose.desktop {
+//    application {
+//        mainClass = "org.jetbrains.compose.demo.falling.MainKt"
+//        nativeDistributions {
+//            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+//            packageName = "falling_balls"
+//            packageVersion = "1.0.0"
+//        }
+//    }
+//}

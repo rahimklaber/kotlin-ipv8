@@ -1,0 +1,180 @@
+package nl.tudelft.ipv8.jvm.swap
+
+import javafx.beans.property.SimpleStringProperty
+import javafx.scene.input.Clipboard
+import javafx.scene.input.ClipboardContent
+import kotlinx.coroutines.*
+import nl.tudelft.ipv8.Overlay
+import nl.tudelft.ipv8.keyvault.LibNaClPK
+import nl.tudelft.ipv8.keyvault.LibNaClSK
+import nl.tudelft.ipv8.logger
+import tornadofx.*
+import java.util.*
+import kotlin.math.roundToInt
+import kotlin.time.ExperimentalTime
+
+
+class AddTradeInfo(){
+    val fromProp = SimpleStringProperty()
+    val toProp = SimpleStringProperty()
+    val fromAmountProp = SimpleStringProperty()
+    val toAmountProp = SimpleStringProperty()
+    var from by fromProp
+    var to by toProp
+    var fromAmount by fromAmountProp
+    var toAmount by toAmountProp
+
+    fun toTradeMessage(publicKey : LibNaClPK) = TradeMessage(
+        from,
+        to,
+        fromAmount,
+        toAmount,
+        publicKey
+    )
+}
+
+class MainPage : View() {
+    val coscope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    val tradeToAdd = AddTradeInfo()
+    val xlmBalanceProp = SimpleStringProperty()
+    var xlmBalance by xlmBalanceProp
+    init {
+        xlmBalance = "xlm balance : 0"
+       runBlocking { ipv8Stuff() }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val root = borderpane {
+        top = hbox {
+            label {
+                this.text = "Trader"
+            }
+        }
+        left = vbox {
+            button("reload") {
+                setOnAction {
+                    coscope.launch {
+                        try {
+                            xlmBalance ="xlm balance :${
+                                nl.tudelft.ipv8.jvm.swap.Config.client.accounts().account(
+                                    nl.tudelft.ipv8.jvm.swap.ipv8Stuff.xlmKey.accountId).balances[0].balance}"
+                        }catch (e : Exception){
+                            xlmBalance = "xlm balance : 0"
+                        }
+                    }
+                }
+            }
+            text().bind(xlmBalanceProp)
+            text("xlm addr: ${ipv8Stuff.xlmKey.accountId}"){
+                onDoubleClick {
+                    val clipboard: Clipboard = Clipboard.getSystemClipboard()
+                    val content = ClipboardContent()
+                    content.putString(ipv8Stuff.xlmKey.accountId)
+                    clipboard.setContent(content)
+                }
+            }
+
+            form() {
+                 fieldset("Add a trade") {
+                     field("from coin") {
+                         textfield().bind(tradeToAdd.fromProp)
+                     }
+
+
+                     field("to coin") {
+                         textfield().bind(tradeToAdd.toProp)
+                     }
+
+
+                     field("from amount") {
+                         textfield().bind(tradeToAdd.fromAmountProp)
+                     }
+
+
+                     field("to amount") {
+                         textfield().bind(tradeToAdd.toAmountProp)
+                     }
+                 }
+
+                button ("add"){
+                    setOnAction {
+                        val msg = tradeToAdd.toTradeMessage((ipv8Stuff.ipv8.myPeer.key as LibNaClSK).pub() as LibNaClPK)
+                        ipv8Stuff.myOffers.add(msg)
+                        ipv8Stuff.swapCommunity.broadcastMsg(msg)
+                    }
+                }
+            }
+        }
+        center = tableview<TradeMessage> {
+            coscope.launch {
+                val receiveChannel = ipv8Stuff.channel.openSubscription()
+                while(true){
+                    val receivedMessage = receiveChannel.receive()
+                    items.add(receivedMessage)
+                }
+            }
+            readonlyColumn("counterparty",TradeMessage::identity)
+            readonlyColumn("from",TradeMessage::from)
+            readonlyColumn("to",TradeMessage::to)
+            readonlyColumn("fromAmount",TradeMessage::fromAmount)
+            readonlyColumn("toAmount",TradeMessage::toAmount)
+        }
+    }
+}
+
+class Application : App(MainPage::class)
+
+private fun printPeersInfo(overlay: Overlay) {
+    val peers = overlay.getPeers()
+    logger.info(overlay::class.simpleName + ": ${peers.size} peers")
+    for (peer in peers) {
+        val avgPing = peer.getAveragePing()
+        val lastRequest = peer.lastRequest
+        val lastResponse = peer.lastResponse
+
+        val lastRequestStr = if (lastRequest != null)
+            "" + ((Date().time - lastRequest.time) / 1000.0).roundToInt() + " s" else "?"
+
+        val lastResponseStr = if (lastResponse != null)
+            "" + ((Date().time - lastResponse.time) / 1000.0).roundToInt() + " s" else "?"
+
+        val avgPingStr =
+            if (!avgPing.isNaN()) "" + (avgPing * 1000).roundToInt() + " ms" else "? ms"
+        logger.info("${peer.mid} (S: ${lastRequestStr}, R: ${lastResponseStr}, ${avgPingStr})")
+    }
+}
+
+
+@OptIn(ExperimentalTime::class)
+suspend fun main(args: Array<String>) {
+    launch<Application>(args)
+//    ipv8Stuff()
+//
+//    GlobalScope.launch {
+//        while (true) {
+//            for ((_, overlay) in ipv8Stuff.ipv8.overlays) {
+//                printPeersInfo(overlay)
+//            }
+//            logger.info("===")
+//            delay(5000)
+//        }
+//    }
+//
+//    while (true){
+//        // trade xlm btc 10 10
+//        val input = readLine()?.split(" ")
+//        when(input?.get(0)){
+//            "trade" -> {
+//                val from = input[1]
+//                val to = input[2]
+//                val fromAmount = input[3]
+//                val toAmount = input[4]
+//                ipv8Stuff.swapCommunity.broadcastMsg(TradeMessage(from, to, fromAmount, toAmount))
+//            }
+//        }
+//    }
+//
+//
+//    delay(Duration.INFINITE)
+
+}

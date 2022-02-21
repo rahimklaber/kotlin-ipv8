@@ -86,15 +86,19 @@ class DiscoveryCommunity : Community(), PingOverlay {
      */
 
     internal fun onSimilarityRequestPacket(packet: Packet) {
-        val (peer, payload) =
-            packet.getAuthPayload(SimilarityRequestPayload.Deserializer)
-        onSimilarityRequest(peer, payload)
+        kotlin.runCatching {
+            val (peer, payload) =
+                packet.getAuthPayload(SimilarityRequestPayload.Deserializer)
+            onSimilarityRequest(peer, payload)
+        }
     }
 
     internal fun onSimilarityResponsePacket(packet: Packet) {
-        val (peer, payload) =
-            packet.getAuthPayload(SimilarityResponsePayload.Deserializer)
-        onSimilarityResponse(peer, payload)
+        kotlin.runCatching {
+            val (peer, payload) =
+                packet.getAuthPayload(SimilarityResponsePayload.Deserializer)
+            onSimilarityResponse(peer, payload)
+        }
     }
 
     internal fun onPingPacket(packet: Packet) {

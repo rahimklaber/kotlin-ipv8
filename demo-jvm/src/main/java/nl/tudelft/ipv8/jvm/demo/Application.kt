@@ -73,7 +73,7 @@ class Application {
 
         val config = IPv8Configuration(overlays = listOf(
             createDiscoveryCommunity(),
-            createTrustChainCommunity(),
+            //createTrustChainCommunity(),
             createDemoCommunity()
         ), walkerInterval = 1.0)
 
