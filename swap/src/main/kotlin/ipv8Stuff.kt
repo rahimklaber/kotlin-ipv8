@@ -20,11 +20,9 @@ import org.bitcoinj.core.BlockChain
 import org.bitcoinj.core.NetworkParameters
 import org.bitcoinj.core.PeerAddress
 import org.bitcoinj.core.PeerGroup
+import org.bitcoinj.params.TestNet3Params
 import org.bitcoinj.script.Script
-import org.bitcoinj.store.H2FullPrunedBlockStore
-import org.bitcoinj.store.MemoryBlockStore
-import org.bitcoinj.store.MemoryFullPrunedBlockStore
-import org.bitcoinj.store.PostgresFullPrunedBlockStore
+import org.bitcoinj.store.*
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
 import org.stellar.sdk.KeyPair
@@ -125,8 +123,9 @@ object ipv8Stuff {
                 Script.ScriptType.P2PKH
             )
         }
-        val store = MemoryFullPrunedBlockStore(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),1000)
-        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,store)
+//        val store = MemoryFullPrunedBlockStore(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),1000)
+        val dbstore = LevelDBFullPrunedBlockStore(TestNet3Params(),"/btcdb.db",1000)
+        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,dbstore)
         val peerGroup = PeerGroup(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),chain)
         peerGroup.addWallet(btcWallet)
         GlobalScope.launch(Dispatchers.IO) {
