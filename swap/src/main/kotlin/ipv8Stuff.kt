@@ -1,6 +1,5 @@
 package nl.tudelft.ipv8.jvm.swap
 
-import fr.acinq.bitcoin.Bitcoin
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BroadcastChannel
 import mu.KotlinLogging
@@ -8,6 +7,7 @@ import nl.tudelft.ipv8.IPv8
 import nl.tudelft.ipv8.IPv8Configuration
 import nl.tudelft.ipv8.OverlayConfiguration
 import nl.tudelft.ipv8.Peer
+import nl.tudelft.ipv8.attestation.WalletAttestation
 import nl.tudelft.ipv8.keyvault.JavaCryptoProvider
 import nl.tudelft.ipv8.messaging.EndpointAggregator
 import nl.tudelft.ipv8.messaging.Packet
@@ -16,8 +16,20 @@ import nl.tudelft.ipv8.peerdiscovery.DiscoveryCommunity
 import nl.tudelft.ipv8.peerdiscovery.strategy.PeriodicSimilarity
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomChurn
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomWalk
+import org.bitcoinj.core.BlockChain
+import org.bitcoinj.core.NetworkParameters
+import org.bitcoinj.core.PeerAddress
+import org.bitcoinj.core.PeerGroup
+import org.bitcoinj.script.Script
+import org.bitcoinj.store.H2FullPrunedBlockStore
+import org.bitcoinj.store.MemoryBlockStore
+import org.bitcoinj.store.MemoryFullPrunedBlockStore
+import org.bitcoinj.store.PostgresFullPrunedBlockStore
+import org.bitcoinj.wallet.DeterministicSeed
+import org.bitcoinj.wallet.Wallet
 import org.stellar.sdk.KeyPair
 import java.net.InetAddress
+import java.net.InetSocketAddress
 
 data class PotentialOffer(val counterParty: Peer, val message: TradeMessage)
 
@@ -27,6 +39,7 @@ object ipv8Stuff {
     lateinit var ipv8: IPv8
     lateinit var swapCommunity: SwapCommunity
     lateinit var xlmKey: KeyPair
+    lateinit var btcWallet : Wallet
     val myOffers = mutableListOf<TradeMessage>() // todo add sender of msg
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -91,14 +104,37 @@ object ipv8Stuff {
     }
 
     suspend operator fun invoke() {
-        xlmKey = KeyPair.fromSecretSeed(
-            PersistentStore.xlmKey ?: run {
-                println(PersistentStore.xlmKey)
-                val newSecret = String(KeyPair.random().secretSeed)
-                PersistentStore.xlmKey = newSecret
-                newSecret
-            }
-        )
+        xlmKey = if(PersistentStore.xlmKey == null || PersistentStore.xlmKey!!.isBlank()){
+            val newSecret = String(KeyPair.random().secretSeed)
+            PersistentStore.xlmKey = newSecret
+            KeyPair.fromSecretSeed(newSecret)
+        }else{
+            KeyPair.fromSecretSeed(PersistentStore.xlmKey)
+        }
+
+        btcWallet = if(PersistentStore.btcKey == null || PersistentStore.btcKey!!.isBlank()){
+            val newMnemonic = Wallet.createDeterministic(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),Script.ScriptType.P2PKH).keyChainSeed.mnemonicString
+            PersistentStore.btcKey = newMnemonic
+            val seed = DeterministicSeed(newMnemonic,null,"",0) // ?? creation time?
+            Wallet.fromSeed(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),seed,
+                Script.ScriptType.P2PKH
+            )
+        }else{
+            val seed = DeterministicSeed(PersistentStore.btcKey,null,"",0) // ?? creation time?
+            Wallet.fromSeed(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),seed,
+                Script.ScriptType.P2PKH
+            )
+        }
+        val store = MemoryFullPrunedBlockStore(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),1000)
+        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,store)
+        val peerGroup = PeerGroup(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),chain)
+        peerGroup.addWallet(btcWallet)
+        GlobalScope.launch(Dispatchers.IO) {
+            peerGroup.addAddress(InetSocketAddress("18.191.253.246",18333).address)
+            peerGroup.start()
+            println(peerGroup.connectedPeers)
+            peerGroup.downloadBlockChain()
+        }
         withContext(scope.coroutineContext) {
             startIpv8()
         }

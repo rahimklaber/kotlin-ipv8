@@ -8,6 +8,7 @@ import nl.tudelft.ipv8.Overlay
 import nl.tudelft.ipv8.keyvault.LibNaClPK
 import nl.tudelft.ipv8.keyvault.LibNaClSK
 import nl.tudelft.ipv8.logger
+import org.bitcoinj.core.Base58
 import tornadofx.*
 import java.util.*
 import kotlin.math.roundToInt
@@ -38,9 +39,13 @@ class MainPage : View() {
     val tradeToAdd = AddTradeInfo()
     val xlmBalanceProp = SimpleStringProperty()
     var xlmBalance by xlmBalanceProp
+    val btcBalanceProp = SimpleStringProperty()
+    var btcBalance by btcBalanceProp
+
     init {
         xlmBalance = "xlm balance : 0"
-       runBlocking { ipv8Stuff() }
+        btcBalance = "btc balance : 0"
+        runBlocking { ipv8Stuff() }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -55,9 +60,13 @@ class MainPage : View() {
                 setOnAction {
                     coscope.launch {
                         try {
-                            xlmBalance ="xlm balance :${
-                                nl.tudelft.ipv8.jvm.swap.Config.client.accounts().account(
-                                    nl.tudelft.ipv8.jvm.swap.ipv8Stuff.xlmKey.accountId).balances[0].balance}"
+                            xlmBalance = "xlm balance :${
+                                Config.client.accounts().account(
+                                    ipv8Stuff.xlmKey.accountId
+                                ).balances[0].balance
+                            }"
+                            btcBalance =
+                                "btc balance : ${ipv8Stuff.btcWallet.balance.toFriendlyString()}"
                         }catch (e : Exception){
                             xlmBalance = "xlm balance : 0"
                         }
@@ -65,7 +74,7 @@ class MainPage : View() {
                 }
             }
             text().bind(xlmBalanceProp)
-            text("xlm addr: ${ipv8Stuff.xlmKey.accountId}"){
+            text("xlm addr: ${ipv8Stuff.xlmKey.accountId}") {
                 onDoubleClick {
                     val clipboard: Clipboard = Clipboard.getSystemClipboard()
                     val content = ClipboardContent()
@@ -74,25 +83,44 @@ class MainPage : View() {
                 }
             }
 
+            text().bind(btcBalanceProp)
+            text(
+                "btc addr: ${
+                    Base58.encodeChecked(
+                        111,
+                        ipv8Stuff.btcWallet.currentReceiveAddress().hash
+                    )
+                }"
+            ) {
+                onDoubleClick {
+                    val clipboard: Clipboard = Clipboard.getSystemClipboard()
+                    val content = ClipboardContent()
+                    val adrrstr =
+                        Base58.encodeChecked(111, ipv8Stuff.btcWallet.currentReceiveAddress().hash)
+                    content.putString(adrrstr)
+                    clipboard.setContent(content)
+                }
+            }
+
             form() {
-                 fieldset("Add a trade") {
-                     field("from coin") {
-                         textfield().bind(tradeToAdd.fromProp)
-                     }
+                fieldset("Add a trade") {
+                    field("from coin") {
+                        textfield().bind(tradeToAdd.fromProp)
+                    }
 
 
-                     field("to coin") {
-                         textfield().bind(tradeToAdd.toProp)
-                     }
+                    field("to coin") {
+                        textfield().bind(tradeToAdd.toProp)
+                    }
 
 
-                     field("from amount") {
-                         textfield().bind(tradeToAdd.fromAmountProp)
-                     }
+                    field("from amount") {
+                        textfield().bind(tradeToAdd.fromAmountProp)
+                    }
 
 
-                     field("to amount") {
-                         textfield().bind(tradeToAdd.toAmountProp)
+                    field("to amount") {
+                        textfield().bind(tradeToAdd.toAmountProp)
                      }
                  }
 

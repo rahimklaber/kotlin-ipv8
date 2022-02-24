@@ -11,6 +11,8 @@ plugins {
 mainClassName = 'nl.tudelft.ipv8.jvm.swap.ApplicationKt'
 
 repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
 }
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
     kotlinOptions {
@@ -21,12 +23,15 @@ dependencies {
     implementation project(':ipv8-jvm')
     implementation "com.goterl:lazysodium-java:5.0.1"
 
+    //h2
+    implementation 'org.postgresql:postgresql:42.3.1'
+
     //settigns
     implementation "com.russhwolf:multiplatform-settings-no-arg:0.8.1"
     //xlm
     implementation 'com.github.stellar:java-stellar-sdk:0.31.0'
     //btc
-    implementation 'fr.acinq.bitcoin:bitcoin-kmp-jvm:0.8.2'
+    implementation 'org.bitcoinj:bitcoinj-core:0.16.1'
 
     // Kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
