@@ -16,16 +16,19 @@ import nl.tudelft.ipv8.peerdiscovery.DiscoveryCommunity
 import nl.tudelft.ipv8.peerdiscovery.strategy.PeriodicSimilarity
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomChurn
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomWalk
-import org.bitcoinj.core.BlockChain
-import org.bitcoinj.core.NetworkParameters
-import org.bitcoinj.core.PeerAddress
-import org.bitcoinj.core.PeerGroup
+import nl.tudelft.ipv8.util.hexToBytes
+import org.bitcoinj.core.*
+import org.bitcoinj.core.listeners.DownloadProgressTracker
+import org.bitcoinj.core.listeners.PeerDataEventListener
 import org.bitcoinj.params.TestNet3Params
 import org.bitcoinj.script.Script
+import org.bitcoinj.script.ScriptBuilder
+import org.bitcoinj.script.ScriptOpCodes.*
 import org.bitcoinj.store.*
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
 import org.stellar.sdk.KeyPair
+import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 
@@ -38,7 +41,35 @@ object ipv8Stuff {
     lateinit var swapCommunity: SwapCommunity
     lateinit var xlmKey: KeyPair
     lateinit var btcWallet : Wallet
+    lateinit var peerGroup: PeerGroup
     val myOffers = mutableListOf<TradeMessage>() // todo add sender of msg
+
+    fun createSwap(recipient : String, amount: String) {
+        val contract = Transaction(TestNet3Params())
+
+
+        val lock = ScriptBuilder()
+            .op(OP_IF)
+            .number(0) // relative lock
+            .op(OP_CHECKSEQUENCEVERIFY)
+            .op(OP_DROP)
+            .data(btcWallet.watchingKey.pubKey)
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ELSE)
+            .op(OP_SHA256)
+            .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
+            .op(OP_EQUALVERIFY)
+            .data(btcWallet.watchingKey.pubKey)
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ENDIF)
+            .build()
+
+
+        contract.addOutput(Coin.SATOSHI,lock)
+
+        val potentialInputs = btcWallet.calculateAllSpendCandidates()
+        println(potentialInputs.joinToString(" "))
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val channel = BroadcastChannel<TradeMessage>(500)
@@ -124,15 +155,24 @@ object ipv8Stuff {
             )
         }
 //        val store = MemoryFullPrunedBlockStore(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),1000)
-        val dbstore = LevelDBFullPrunedBlockStore(TestNet3Params(),"/btcdb.db",1000)
-        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,dbstore)
-        val peerGroup = PeerGroup(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),chain)
+//        val dbstore = LevelDBFullPrunedBlockStore(TestNet3Params(),"/btcdb.db",10000)
+        val spvfile = File("spvstore")
+        spvfile.createNewFile()
+        val spvstore = SPVBlockStore(TestNet3Params(), spvfile)
+        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,spvstore)
+        peerGroup = PeerGroup(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),chain)
         peerGroup.addWallet(btcWallet)
         GlobalScope.launch(Dispatchers.IO) {
-            peerGroup.addAddress(InetSocketAddress("18.191.253.246",18333).address)
+//            peerGroup.addAddress(InetSocketAddress("18.191.253.246",18333).address)
+//            peerGroup.addAddress(InetSocketAddress("51.15.16.159",18333).address)
+            peerGroup.addAddress(InetSocketAddress("52.0.54.100",18333).address)
+            peerGroup.addAddress(InetSocketAddress("5.188.119.196",18333).address)
+            peerGroup.addAddress(InetSocketAddress("80.208.229.137",18333).address)
             peerGroup.start()
             println(peerGroup.connectedPeers)
-            peerGroup.downloadBlockChain()
+            delay(5000)
+            val tracker = DownloadProgressTracker()
+            peerGroup.startBlockChainDownload(tracker)
         }
         withContext(scope.coroutineContext) {
             startIpv8()

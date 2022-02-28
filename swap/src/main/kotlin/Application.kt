@@ -133,19 +133,24 @@ class MainPage : View() {
                 }
             }
         }
-        center = tableview<TradeMessage> {
-            coscope.launch {
-                val receiveChannel = ipv8Stuff.channel.openSubscription()
-                while(true){
-                    val receivedMessage = receiveChannel.receive()
-                    items.add(receivedMessage)
+        center = vbox {
+            tableview<TradeMessage> {
+                coscope.launch {
+                    val receiveChannel = ipv8Stuff.channel.openSubscription()
+                    while(true){
+                        val receivedMessage = receiveChannel.receive()
+                        items.add(receivedMessage)
+                    }
                 }
+                readonlyColumn("counterparty",TradeMessage::identity)
+                readonlyColumn("from",TradeMessage::from)
+                readonlyColumn("to",TradeMessage::to)
+                readonlyColumn("fromAmount",TradeMessage::fromAmount)
+                readonlyColumn("toAmount",TradeMessage::toAmount)
             }
-            readonlyColumn("counterparty",TradeMessage::identity)
-            readonlyColumn("from",TradeMessage::from)
-            readonlyColumn("to",TradeMessage::to)
-            readonlyColumn("fromAmount",TradeMessage::fromAmount)
-            readonlyColumn("toAmount",TradeMessage::toAmount)
+            button("print spendable utxos") {setOnAction {
+                ipv8Stuff.createSwap("","")
+            } }
         }
     }
 }
