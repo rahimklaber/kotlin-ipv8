@@ -8,9 +8,12 @@ import nl.tudelft.ipv8.Overlay
 import nl.tudelft.ipv8.keyvault.LibNaClPK
 import nl.tudelft.ipv8.keyvault.LibNaClSK
 import nl.tudelft.ipv8.logger
+import nl.tudelft.ipv8.util.hexToBytes
 import org.bitcoinj.core.Base58
+import org.bitcoinj.core.Sha256Hash
 import tornadofx.*
 import java.util.*
+import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.time.ExperimentalTime
 
@@ -131,6 +134,24 @@ class MainPage : View() {
                         ipv8Stuff.swapCommunity.broadcastMsg(msg)
                     }
                 }
+
+                val utx0hash = SimpleStringProperty()
+
+                fieldset("take back swap") {
+
+                    field("utx0 hash?"){
+                        textfield().bind(utx0hash)
+                    }
+                }
+
+                button("try to refund"){
+                    setOnAction {
+                        coscope.launch{
+                            val block = ipv8Stuff.btcWallet
+                            ipv8Stuff.tryToRefund(utx0hash.get())
+                        }
+                    }
+                }
             }
         }
         center = vbox {
@@ -148,8 +169,10 @@ class MainPage : View() {
                 readonlyColumn("fromAmount",TradeMessage::fromAmount)
                 readonlyColumn("toAmount",TradeMessage::toAmount)
             }
-            button("print spendable utxos") {setOnAction {
-                ipv8Stuff.createSwap("","")
+            button("try swap") {setOnAction {
+               coscope.launch {
+                   ipv8Stuff.createSwap("","")
+               }
             } }
         }
     }

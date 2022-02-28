@@ -7,7 +7,6 @@ import nl.tudelft.ipv8.IPv8
 import nl.tudelft.ipv8.IPv8Configuration
 import nl.tudelft.ipv8.OverlayConfiguration
 import nl.tudelft.ipv8.Peer
-import nl.tudelft.ipv8.attestation.WalletAttestation
 import nl.tudelft.ipv8.keyvault.JavaCryptoProvider
 import nl.tudelft.ipv8.messaging.EndpointAggregator
 import nl.tudelft.ipv8.messaging.Packet
@@ -18,20 +17,15 @@ import nl.tudelft.ipv8.peerdiscovery.strategy.RandomChurn
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomWalk
 import nl.tudelft.ipv8.util.hexToBytes
 import org.bitcoinj.core.*
-import org.bitcoinj.core.listeners.DownloadProgressTracker
-import org.bitcoinj.core.listeners.PeerDataEventListener
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.TestNet3Params
-import org.bitcoinj.script.Script
 import org.bitcoinj.script.ScriptBuilder
 import org.bitcoinj.script.ScriptOpCodes.*
-import org.bitcoinj.store.*
-import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.KeyChain
+import org.bitcoinj.wallet.SendRequest
 import org.stellar.sdk.KeyPair
 import java.io.File
 import java.net.InetAddress
-import java.net.InetSocketAddress
 
 data class PotentialOffer(val counterParty: Peer, val message: TradeMessage)
 
@@ -60,7 +54,7 @@ object ipv8Stuff {
             .op(OP_SHA256)
             .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
             .op(OP_EQUALVERIFY)
-            .data(btcWallet.wallet().watchingKey.pubKey)
+            .data(recipient.toByteArray())
             .op(OP_CHECKSIGVERIFY)
             .op(OP_ENDIF)
             .build()
@@ -69,7 +63,49 @@ object ipv8Stuff {
         contract.addOutput(Coin.SATOSHI,lock)
 
         val potentialInputs = btcWallet.wallet().calculateAllSpendCandidates()
-        println(potentialInputs.joinToString(" "))
+        contract.addInput(potentialInputs.first())
+        val send = SendRequest.forTx(contract)
+        btcWallet.wallet().completeTx(send)
+
+        val future = btcWallet.peerGroup().broadcastTransaction(send.tx).broadcast().get()
+        println(future)
+
+////        btcWallet.wallet().completeTx()
+//        println(potentialInputs.joinToString(" "))
+    }
+
+    fun tryToRefund(hash:String){
+        val prevout = btcWallet.wallet().walletTransactions.first().transaction.outputs.first()
+        val contract = Transaction(TestNet3Params())
+
+        contract.addOutput(Coin.SATOSHI, btcWallet.wallet().currentReceiveAddress())
+        val signingKey = btcWallet.wallet().currentKey(KeyChain.KeyPurpose.AUTHENTICATION)
+        val unlockScript = ScriptBuilder()
+//            .data(signingKey.sign(Sha256Hash.wrap(hash)).encodeToDER())
+            .op(OP_1)
+            .build()
+
+//        unlockScript.getScriptSigWithSignature()
+//
+//        scriptPubKey.getScriptSigWithSignature(
+//            inputScript, signature.encodeToBitcoin(),
+//            sigIndex
+//        )
+
+        contract.addInput(prevout)
+        
+        val input = contract.inputs.first()
+        input.scriptSig = unlockScript
+
+        btcWallet.wallet().completeTx()
+
+        println(contract)
+
+//        val future = btcWallet.peerGroup().broadcastTransaction(contract).broadcast().get()
+//        println(future)
+
+
+
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
