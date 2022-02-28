@@ -66,7 +66,7 @@ class MainPage : View() {
                                 ).balances[0].balance
                             }"
                             btcBalance =
-                                "btc balance : ${ipv8Stuff.btcWallet.balance.toFriendlyString()}"
+                                "btc balance : ${ipv8Stuff.btcWallet.wallet().balance.toFriendlyString()}"
                         }catch (e : Exception){
                             xlmBalance = "xlm balance : 0"
                         }
@@ -88,7 +88,7 @@ class MainPage : View() {
                 "btc addr: ${
                     Base58.encodeChecked(
                         111,
-                        ipv8Stuff.btcWallet.currentReceiveAddress().hash
+                        ipv8Stuff.btcWallet.wallet().currentReceiveAddress().hash
                     )
                 }"
             ) {
@@ -96,7 +96,7 @@ class MainPage : View() {
                     val clipboard: Clipboard = Clipboard.getSystemClipboard()
                     val content = ClipboardContent()
                     val adrrstr =
-                        Base58.encodeChecked(111, ipv8Stuff.btcWallet.currentReceiveAddress().hash)
+                        Base58.encodeChecked(111, ipv8Stuff.btcWallet.wallet().currentReceiveAddress().hash)
                     content.putString(adrrstr)
                     clipboard.setContent(content)
                 }
@@ -158,6 +158,7 @@ class MainPage : View() {
 class Application : App(MainPage::class)
 
 private fun printPeersInfo(overlay: Overlay) {
+
     val peers = overlay.getPeers()
     logger.info(overlay::class.simpleName + ": ${peers.size} peers")
     for (peer in peers) {
