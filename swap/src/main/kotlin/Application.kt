@@ -1,5 +1,6 @@
 package nl.tudelft.ipv8.jvm.swap
 
+import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleStringProperty
 import javafx.scene.input.Clipboard
 import javafx.scene.input.ClipboardContent
@@ -136,11 +137,16 @@ class MainPage : View() {
                 }
 
                 val utx0hash = SimpleStringProperty()
+                val index = SimpleIntegerProperty()
 
                 fieldset("take back swap") {
 
-                    field("utx0 hash?"){
+                    field("tx hash?"){
                         textfield().bind(utx0hash)
+                    }
+
+                    field("output index"){
+                        textfield().bind(index)
                     }
                 }
 
@@ -148,7 +154,7 @@ class MainPage : View() {
                     setOnAction {
                         coscope.launch{
                             val block = ipv8Stuff.btcWallet
-                            ipv8Stuff.tryToRefund(utx0hash.get())
+                            ipv8Stuff.tryToRefund(utx0hash.get(),index.get())
                         }
                     }
                 }

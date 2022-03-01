@@ -1,6 +1,7 @@
 package nl.tudelft.ipv8.jvm.swap
 
 import fr.acinq.bitcoin.*
+import fr.acinq.bitcoin.Base58
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BroadcastChannel
 import mu.KotlinLogging
@@ -17,6 +18,7 @@ import nl.tudelft.ipv8.peerdiscovery.strategy.PeriodicSimilarity
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomChurn
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomWalk
 import nl.tudelft.ipv8.util.hexToBytes
+import nl.tudelft.ipv8.util.toHex
 import org.bitcoinj.core.*
 import org.bitcoinj.core.Transaction
 import org.bitcoinj.crypto.TransactionSignature
@@ -42,9 +44,15 @@ object ipv8Stuff {
     lateinit var btcWallet : WalletAppKit
     lateinit var peerGroup: PeerGroup
     val myOffers = mutableListOf<TradeMessage>() // todo add sender of msg
+    lateinit var privateKey: PrivateKey
 
     fun createSwap(recipient : String, amount: String) {
         val contract = Transaction(TestNet3Params())
+
+        val t= btcWallet.wallet().freshKey(KeyChain.KeyPurpose.AUTHENTICATION)
+        println(t.privateKeyAsHex)
+
+        privateKey = PrivateKey.fromHex(t.privateKeyAsHex)
 
 
         val lock = ScriptBuilder()
@@ -52,19 +60,19 @@ object ipv8Stuff {
             .number(0) // relative lock
             .op(OP_CHECKSEQUENCEVERIFY)
             .op(OP_DROP)
-            .data(btcWallet.wallet().currentKey(KeyChain.KeyPurpose.AUTHENTICATION).pubKey)
+            .data(privateKey.publicKey().value.toByteArray())
             .op(OP_CHECKSIGVERIFY)
             .op(OP_ELSE)
             .op(OP_SHA256)
             .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
             .op(OP_EQUALVERIFY)
-            .data(btcWallet.wallet().currentKey(KeyChain.KeyPurpose.AUTHENTICATION).pubKey)
+            .data(privateKey.publicKey().value.toByteArray())
             .op(OP_CHECKSIGVERIFY)
             .op(OP_ENDIF)
             .build()
 
 
-        contract.addOutput(Coin.parseCoin("0.0005"),lock)
+        contract.addOutput(Coin.parseCoin("0.00025"),lock)
 //
 //        val potentialInputs = btcWallet.wallet().calculateAllSpendCandidates()
 //        contract.addInput(potentialInputs.first())
@@ -82,9 +90,9 @@ object ipv8Stuff {
 //        println(potentialInputs.joinToString(" "))
     }
 
-    fun tryToRefund(hash:String){
+    fun tryToRefund(hash:String,outputIndex:Int){
         val txWithOutput =  btcWallet.wallet().walletTransactions.find {
-            it.transaction.txId.bytes.contentEquals("6c1b091d37c7230404d0ef1888eace4a266cdfcc14fc4514564d9926ebd542af".hexToBytes())
+            it.transaction.txId.bytes.contentEquals(hash.hexToBytes())
         }?.transaction ?: error("could not find tx")
 //        val prevout = btcWallet.wallet().walletTransactions.find {
 //            it.transaction.txId.bytes.contentEquals("55cdab5a9d93ad150d984bf8534cad5d4895d85424d110cb2396f2a9cfcf1d7e".hexToBytes())
@@ -147,7 +155,7 @@ object ipv8Stuff {
 //        input.scriptSig = updatedUnlock
 
         val prevTx = fr.acinq.bitcoin.Transaction.read(txWithOutput.bitcoinSerialize())
-        val script = Script.parse(prevTx.txOut[1].publicKeyScript)
+        val script = Script.parse(prevTx.txOut[outputIndex].publicKeyScript)
         println(script)
         println(prevTx.hash)
 
@@ -156,7 +164,7 @@ object ipv8Stuff {
         val newtx = fr.acinq.bitcoin.Transaction(
             version = 1L,
             txIn =  listOf(
-                TxIn(OutPoint(prevTx,1),signatureScript = listOf(),sequence = 0xFFFFFFFFL )
+                TxIn(OutPoint(prevTx,outputIndex.toLong()),signatureScript = listOf(),sequence = 0xFFFFFFFFL )
             ),
             txOut = listOf(
                 TxOut(amount = 1000L.toSatoshi(), publicKeyScript = listOf(fr.acinq.bitcoin.OP_DUP, fr.acinq.bitcoin.OP_HASH160, OP_PUSHDATA(mypkh), fr.acinq.bitcoin.OP_EQUALVERIFY, fr.acinq.bitcoin.OP_CHECKSIG))
@@ -164,15 +172,28 @@ object ipv8Stuff {
             lockTime = 0L
         )
 
-        val kmpprivatekey = PrivateKey(signingKey.privKeyBytes)
+        val kmpprivatekey = PrivateKey.fromHex("942ddbb4e7cecf14786ba61a17c444129850f69983977a4aff5a98c8f8625f40")
 
-        val sig = fr.acinq.bitcoin.Transaction.signInput(newtx,0,prevTx.txOut[1].publicKeyScript,SigHash.SIGHASH_ALL,kmpprivatekey)
+        val sig = fr.acinq.bitcoin.Transaction.signInput(newtx,0,prevTx.txOut[outputIndex].publicKeyScript,SigHash.SIGHASH_ALL,kmpprivatekey)
         println("pubkey: ${kmpprivatekey.publicKey().toHex()}")
         println("sig: ${sig.hex}")
-        val tx2 = newtx.updateSigScript(0, listOf(OP_PUSHDATA(sig), fr.acinq.bitcoin.OP_1))
+        val tx2 = newtx.updateSigScript(0, listOf(fr.acinq.bitcoin.OP_1,OP_PUSHDATA(sig),OP_PUSHDATA("hi".toByteArray()), fr.acinq.bitcoin.OP_0))
 
         fr.acinq.bitcoin.Transaction.correctlySpends(tx2, listOf(prevTx),ScriptFlags.MANDATORY_SCRIPT_VERIFY_FLAGS)
 //        val tx =
+
+        println(
+            Transaction(
+                TestNet3Params(),
+                fr.acinq.bitcoin.Transaction.write(tx2)
+            ).toHexString()
+        )
+        println(fr.acinq.bitcoin.Transaction.write(tx2).toHex())
+        val txTobroadcast = Transaction(TestNet3Params(),fr.acinq.bitcoin.Transaction.write(tx2))
+
+        val future = btcWallet.peerGroup().broadcastTransaction(txTobroadcast).broadcast().get()
+////
+        println(future)
 
 //        val future = btcWallet.peerGroup().broadcastTransaction(contract).broadcast().get()
 //        println(future)
