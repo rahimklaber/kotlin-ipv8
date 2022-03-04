@@ -28,12 +28,15 @@ import org.bitcoinj.script.ScriptBuilder
 import org.bitcoinj.script.ScriptOpCodes.*
 import org.bitcoinj.wallet.KeyChain
 import org.bitcoinj.wallet.SendRequest
+import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
 import org.stellar.sdk.KeyPair
 import tornadofx.hex
 import java.io.File
 import java.net.InetAddress
 
 data class PotentialOffer(val counterParty: Peer, val message: TradeMessage)
+
 
 object ipv8Stuff {
     val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -57,7 +60,7 @@ object ipv8Stuff {
 
         val lock = ScriptBuilder()
             .op(OP_IF)
-            .number(0) // relative lock
+            .number(1) // relative lock
             .op(OP_CHECKSEQUENCEVERIFY)
             .op(OP_DROP)
             .data(privateKey.publicKey().value.toByteArray())
@@ -80,6 +83,7 @@ object ipv8Stuff {
 //        if(potentialInputs.first().value < Coin.parseCoin("0.00046227") ){
 //            error("input value too low")
 //        }
+//        contract.lo
         val send = SendRequest.forTx(contract)
         btcWallet.wallet().completeTx(send)
 
@@ -90,110 +94,81 @@ object ipv8Stuff {
 //        println(potentialInputs.joinToString(" "))
     }
 
-    fun tryToRefund(hash:String,outputIndex:Int){
+    fun tryToRefund(hash:String,outputIndex:Int,privkeyHex: String){
         val txWithOutput =  btcWallet.wallet().walletTransactions.find {
             it.transaction.txId.bytes.contentEquals(hash.hexToBytes())
         }?.transaction ?: error("could not find tx")
-//        val prevout = btcWallet.wallet().walletTransactions.find {
-//            it.transaction.txId.bytes.contentEquals("55cdab5a9d93ad150d984bf8534cad5d4895d85424d110cb2396f2a9cfcf1d7e".hexToBytes())
-//        }?.transaction?.outputs?.get(1) ?: throw Error("error can't find tx")
-//        println(prevout)
 
-//        val contract = Transaction(TestNet3Params())
+
+        val key = ECKey.fromPrivate(privkeyHex.hexToBytes())
+
+        println("imported key hex: ${key.privateKeyAsHex}")
+        println("imported public key hex: ${key.publicKeyAsHex}")
+
+        val contract = Transaction(TestNet3Params())
+        contract.setVersion(2)
+        val prevTxOut =txWithOutput.outputs[0]
+        contract.addOutput(prevTxOut.value.div(10).multiply(9), btcWallet.wallet().currentReceiveAddress())
+        contract.addInput(prevTxOut)
+        contract.inputs[0].sequenceNumber = 0xFFFF0001L xor  (1 shl 31) xor (1 shl 22)
+        val txHash = contract.hashForSignature(0, byteArrayOf(),Transaction.SigHash.ALL,false)
+        val sig = contract.calculateSignature(0,key, byteArrayOf(),Transaction.SigHash.ALL,false)
+
+
+        val redeemScript = ScriptBuilder()
+            .op(OP_1)
+            .data(sig.encodeToBitcoin())
+            .op(OP_1)
+            .build()
+        contract.inputs[0].scriptSig = redeemScript
+
+        println("tx hex: ${contract.toHexString()}")
+
+        val future = btcWallet.peerGroup().broadcastTransaction(contract).broadcast()
+        println(future.get())
+
+
+//        val prevTx = fr.acinq.bitcoin.Transaction.read(txWithOutput.bitcoinSerialize())
+//        val script = Script.parse(prevTx.txOut[outputIndex].publicKeyScript)
+//        println(script)
+//        println(prevTx.hash)
 //
-//        contract.addOutput(Coin.SATOSHI, btcWallet.wallet().currentReceiveAddress())
-        val signingKey = btcWallet.wallet().currentKey(KeyChain.KeyPurpose.AUTHENTICATION)
-//        val unlockScript = ScriptBuilder()
-//            .data(byteArrayOf(0))
-//            .op(OP_1)
-//            .build()
+//        val mypkh = btcWallet.wallet().currentReceiveAddress().hash
 //
-////        unlockScript.getScriptSigWithSignature()
-////
-////        scriptPubKey.getScriptSigWithSignature(
-////            inputScript, signature.encodeToBitcoin(),
-////            sigIndex
-////        )
-//
-//        contract.addInput(prevout)
-//
-//
-////        contract.add
-//
-//        val input = contract.inputs.first()
-//
-//
-//        val signature: TransactionSignature = contract.calculateSignature(
-//            0, signingKey, input.scriptBytes, Transaction.SigHash.ALL,
-//            false
+//        val newtx = fr.acinq.bitcoin.Transaction(
+//            version = 2L,
+//            txIn =  listOf(
+//                TxIn(OutPoint(prevTx,outputIndex.toLong()),signatureScript = listOf(),sequence = 0xFFFF0001L xor  (1 shl 31) xor (1 shl 22)  )
+//            ),
+//            txOut = listOf(
+//                TxOut(amount = 1000L.toSatoshi(), publicKeyScript = listOf(fr.acinq.bitcoin.OP_DUP, fr.acinq.bitcoin.OP_HASH160, OP_PUSHDATA(mypkh), fr.acinq.bitcoin.OP_EQUALVERIFY, fr.acinq.bitcoin.OP_CHECKSIG))
+//            ),
+//            lockTime = 0L
 //        )
 //
-//        // at this point we have incomplete inputScript with OP_0 in place of one or more signatures. We
-//        // already have calculated the signature using the local key and now need to insert it in the
-//        // correct place within inputScript. For P2PKH and P2PK script there is only one signature and it
-//        // always goes first in an inputScript (sigIndex = 0). In P2SH input scripts we need to figure out
-//        // our relative position relative to other signers. Since we don't have that information at this
-//        // point, and since we always run first, we have to depend on the other signers rearranging the
-//        // signatures as needed. Therefore, always place as first signature.
+//        val kmpprivatekey = PrivateKey.fromHex(privkeyHex)
 //
-//        // at this point we have incomplete inputScript with OP_0 in place of one or more signatures. We
-//        // already have calculated the signature using the local key and now need to insert it in the
-//        // correct place within inputScript. For P2PKH and P2PK script there is only one signature and it
-//        // always goes first in an inputScript (sigIndex = 0). In P2SH input scripts we need to figure out
-//        // our relative position relative to other signers. Since we don't have that information at this
-//        // point, and since we always run first, we have to depend on the other signers rearranging the
-//        // signatures as needed. Therefore, always place as first signature.
-//        val sigIndex = 0
-//        val updatedUnlock = ScriptBuilder()
-//            .data(signature.encodeToBitcoin())
-//            .op(OP_1)
-//            .build()
-////            unlockScript.getScriptSigWithSignature(
-////            unlockScript, signature.encodeToBitcoin(),
-////            sigIndex
-////        )
-//        input.scriptSig = updatedUnlock
-
-        val prevTx = fr.acinq.bitcoin.Transaction.read(txWithOutput.bitcoinSerialize())
-        val script = Script.parse(prevTx.txOut[outputIndex].publicKeyScript)
-        println(script)
-        println(prevTx.hash)
-
-        val mypkh = btcWallet.wallet().currentReceiveAddress().hash
-
-        val newtx = fr.acinq.bitcoin.Transaction(
-            version = 1L,
-            txIn =  listOf(
-                TxIn(OutPoint(prevTx,outputIndex.toLong()),signatureScript = listOf(),sequence = 0xFFFFFFFFL )
-            ),
-            txOut = listOf(
-                TxOut(amount = 1000L.toSatoshi(), publicKeyScript = listOf(fr.acinq.bitcoin.OP_DUP, fr.acinq.bitcoin.OP_HASH160, OP_PUSHDATA(mypkh), fr.acinq.bitcoin.OP_EQUALVERIFY, fr.acinq.bitcoin.OP_CHECKSIG))
-            ),
-            lockTime = 0L
-        )
-
-        val kmpprivatekey = PrivateKey.fromHex("942ddbb4e7cecf14786ba61a17c444129850f69983977a4aff5a98c8f8625f40")
-
-        val sig = fr.acinq.bitcoin.Transaction.signInput(newtx,0,prevTx.txOut[outputIndex].publicKeyScript,SigHash.SIGHASH_ALL,kmpprivatekey)
-        println("pubkey: ${kmpprivatekey.publicKey().toHex()}")
-        println("sig: ${sig.hex}")
-        val tx2 = newtx.updateSigScript(0, listOf(fr.acinq.bitcoin.OP_1,OP_PUSHDATA(sig),OP_PUSHDATA("hi".toByteArray()), fr.acinq.bitcoin.OP_0))
-
-        fr.acinq.bitcoin.Transaction.correctlySpends(tx2, listOf(prevTx),ScriptFlags.MANDATORY_SCRIPT_VERIFY_FLAGS)
-//        val tx =
-
-        println(
-            Transaction(
-                TestNet3Params(),
-                fr.acinq.bitcoin.Transaction.write(tx2)
-            ).toHexString()
-        )
-        println(fr.acinq.bitcoin.Transaction.write(tx2).toHex())
-        val txTobroadcast = Transaction(TestNet3Params(),fr.acinq.bitcoin.Transaction.write(tx2))
-
-        val future = btcWallet.peerGroup().broadcastTransaction(txTobroadcast).broadcast().get()
-////
-        println(future)
+//        val sig = fr.acinq.bitcoin.Transaction.signInput(newtx,0,prevTx.txOut[outputIndex].publicKeyScript,SigHash.SIGHASH_ALL,kmpprivatekey)
+//        println("pubkey: ${kmpprivatekey.publicKey().toHex()}")
+//        println("sig: ${sig.hex}")
+////        val tx2 = newtx.updateSigScript(0, listOf(fr.acinq.bitcoin.OP_1,OP_PUSHDATA(sig),OP_PUSHDATA("hi".toByteArray()), fr.acinq.bitcoin.OP_0))
+//        val tx2 = newtx.updateSigScript(0, listOf(fr.acinq.bitcoin.OP_1,OP_PUSHDATA(sig), fr.acinq.bitcoin.OP_1))
+//
+////        val tx =
+//
+//        println(
+//            Transaction(
+//                TestNet3Params(),
+//                fr.acinq.bitcoin.Transaction.write(tx2)
+//            ).toHexString()
+//        )
+//        println(fr.acinq.bitcoin.Transaction.write(tx2).toHex())
+//        fr.acinq.bitcoin.Transaction.correctlySpends(tx2, listOf(prevTx),ScriptFlags.SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)
+//        val txTobroadcast = Transaction(TestNet3Params(),fr.acinq.bitcoin.Transaction.write(tx2))
+//
+//        val future = btcWallet.peerGroup().broadcastTransaction(txTobroadcast).broadcast().get()
+//////
+//        println(future)
 
 //        val future = btcWallet.peerGroup().broadcastTransaction(contract).broadcast().get()
 //        println(future)

@@ -137,9 +137,14 @@ class MainPage : View() {
                 }
 
                 val utx0hash = SimpleStringProperty()
+                val privkeyhex = SimpleStringProperty()
                 val index = SimpleIntegerProperty()
 
                 fieldset("take back swap") {
+
+                    field("privkey hex"){
+                        textfield().bind(privkeyhex)
+                    }
 
                     field("tx hash?"){
                         textfield().bind(utx0hash)
