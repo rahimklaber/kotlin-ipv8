@@ -23,6 +23,7 @@ import org.bitcoinj.core.*
 import org.bitcoinj.core.Transaction
 import org.bitcoinj.crypto.TransactionSignature
 import org.bitcoinj.kits.WalletAppKit
+import org.bitcoinj.params.RegTestParams
 import org.bitcoinj.params.TestNet3Params
 import org.bitcoinj.script.ScriptBuilder
 import org.bitcoinj.script.ScriptOpCodes.*
@@ -34,6 +35,7 @@ import org.stellar.sdk.KeyPair
 import tornadofx.hex
 import java.io.File
 import java.net.InetAddress
+import java.net.InetSocketAddress
 
 data class PotentialOffer(val counterParty: Peer, val message: TradeMessage)
 
@@ -48,34 +50,56 @@ object ipv8Stuff {
     lateinit var peerGroup: PeerGroup
     val myOffers = mutableListOf<TradeMessage>() // todo add sender of msg
     lateinit var privateKey: PrivateKey
+    var params = RegTestParams()
+    /**
+     * Create the swap script with the recipient, reclaimer and secret hash.
+     */
+    fun createSwapScript(recipientPubHex: String, reclaimPubHex:String,secretHashHex:String) = ScriptBuilder()
+        .op(OP_IF)
+        .number(1) // relative lock
+        .op(OP_CHECKSEQUENCEVERIFY)
+        .op(OP_DROP)
+        .data(reclaimPubHex.hexToBytes())
+        .op(OP_CHECKSIGVERIFY)
+        .op(OP_ELSE)
+        .op(OP_SHA256)
+        .data(secretHashHex.hexToBytes()) // for hi
+        .op(OP_EQUALVERIFY)
+        .data(recipientPubHex.hexToBytes())
+        .op(OP_CHECKSIGVERIFY)
+        .op(OP_ENDIF)
+        .build()
+
 
     fun createSwap(recipient : String, amount: String) {
-        val contract = Transaction(TestNet3Params())
+        val contract = Transaction(params)
 
         val t= btcWallet.wallet().freshKey(KeyChain.KeyPurpose.AUTHENTICATION)
-        println(t.privateKeyAsHex)
+        println("KEY: ${t.privateKeyAsHex}")
+
 
         privateKey = PrivateKey.fromHex(t.privateKeyAsHex)
 
 
-        val lock = ScriptBuilder()
-            .op(OP_IF)
-            .number(1) // relative lock
-            .op(OP_CHECKSEQUENCEVERIFY)
-            .op(OP_DROP)
-            .data(privateKey.publicKey().value.toByteArray())
-            .op(OP_CHECKSIGVERIFY)
-            .op(OP_ELSE)
-            .op(OP_SHA256)
-            .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
-            .op(OP_EQUALVERIFY)
-            .data(privateKey.publicKey().value.toByteArray())
-            .op(OP_CHECKSIGVERIFY)
-            .op(OP_ENDIF)
-            .build()
+//        val lock = ScriptBuilder()
+//            .op(OP_IF)
+//            .number(1) // relative lock
+//            .op(OP_CHECKSEQUENCEVERIFY)
+//            .op(OP_DROP)
+//            .data(privateKey.publicKey().value.toByteArray())
+//            .op(OP_CHECKSIGVERIFY)
+//            .op(OP_ELSE)
+//            .op(OP_SHA256)
+//            .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
+//            .op(OP_EQUALVERIFY)
+//            .data(privateKey.publicKey().value.toByteArray())
+//            .op(OP_CHECKSIGVERIFY)
+//            .op(OP_ENDIF)
+//            .build()
 
+        val lock = createSwapScript(recipient, privateKey.publicKey().toHex(),"8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
 
-        contract.addOutput(Coin.parseCoin("0.00025"),lock)
+        contract.addOutput(Coin.parseCoin("0.0002"),ScriptBuilder.createP2SHOutputScript(lock))
 //
 //        val potentialInputs = btcWallet.wallet().calculateAllSpendCandidates()
 //        contract.addInput(potentialInputs.first())
@@ -86,8 +110,10 @@ object ipv8Stuff {
 //        contract.lo
         val send = SendRequest.forTx(contract)
         btcWallet.wallet().completeTx(send)
-
-        val future = btcWallet.peerGroup().broadcastTransaction(send.tx).broadcast().get()
+        println("textraw : ${send.tx.toHexString()}")
+        println("tx hash: ${send.tx.txId}")
+        btcWallet.peerGroup().minBroadcastConnections=1
+        val future = btcWallet.peerGroup().broadcastTransaction(send.tx).future().get()
         println(future)
 
 ////        btcWallet.wallet().completeTx()
@@ -105,26 +131,49 @@ object ipv8Stuff {
         println("imported key hex: ${key.privateKeyAsHex}")
         println("imported public key hex: ${key.publicKeyAsHex}")
 
-        val contract = Transaction(TestNet3Params())
+        val contract = Transaction(params)
         contract.setVersion(2)
-        val prevTxOut =txWithOutput.outputs[0]
+        val prevTxOut =txWithOutput.outputs[outputIndex]
         contract.addOutput(prevTxOut.value.div(10).multiply(9), btcWallet.wallet().currentReceiveAddress())
-        contract.addInput(prevTxOut)
+        val originalLockScript = ScriptBuilder()
+            .op(OP_IF)
+            .number(1) // relative lock
+            .op(OP_CHECKSEQUENCEVERIFY)
+            .op(OP_DROP)
+            .data(key.pubKey)
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ELSE)
+            .op(OP_SHA256)
+            .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
+            .op(OP_EQUALVERIFY)
+            .data("".hexToBytes()) //todo
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ENDIF)
+            .build()
+        val input = contract.addInput(prevTxOut)
         contract.inputs[0].sequenceNumber = 0xFFFF0001L xor  (1 shl 31) xor (1 shl 22)
-        val txHash = contract.hashForSignature(0, byteArrayOf(),Transaction.SigHash.ALL,false)
-        val sig = contract.calculateSignature(0,key, byteArrayOf(),Transaction.SigHash.ALL,false)
 
 
-        val redeemScript = ScriptBuilder()
+
+//        val hash = contract.hashForSignature(0,originalLockScript,Transaction.SigHash.ALL,false)
+        val sig = contract.calculateSignature(0,key,originalLockScript,Transaction.SigHash.ALL,false)
+        val sigscript = ScriptBuilder()
             .op(OP_1)
             .data(sig.encodeToBitcoin())
             .op(OP_1)
+            .data(originalLockScript.program)
             .build()
-        contract.inputs[0].scriptSig = redeemScript
+
+
+        input.scriptSig = sigscript
+
+
+
+
 
         println("tx hex: ${contract.toHexString()}")
 
-        val future = btcWallet.peerGroup().broadcastTransaction(contract).broadcast()
+        val future = btcWallet.peerGroup().broadcastTransaction(contract).future()
         println(future.get())
 
 
@@ -158,13 +207,13 @@ object ipv8Stuff {
 //
 //        println(
 //            Transaction(
-//                TestNet3Params(),
+//                _root_ide_package_.org.bitcoinj.params.params,
 //                fr.acinq.bitcoin.Transaction.write(tx2)
 //            ).toHexString()
 //        )
 //        println(fr.acinq.bitcoin.Transaction.write(tx2).toHex())
 //        fr.acinq.bitcoin.Transaction.correctlySpends(tx2, listOf(prevTx),ScriptFlags.SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)
-//        val txTobroadcast = Transaction(TestNet3Params(),fr.acinq.bitcoin.Transaction.write(tx2))
+//        val txTobroadcast = Transaction(_root_ide_package_.org.bitcoinj.params.params,fr.acinq.bitcoin.Transaction.write(tx2))
 //
 //        val future = btcWallet.peerGroup().broadcastTransaction(txTobroadcast).broadcast().get()
 //////
@@ -178,6 +227,67 @@ object ipv8Stuff {
 
 
 
+    }
+
+    /**
+     * @param secret secret of hash in hex
+     */
+    fun tryToClaim(txhash:String, secret:String, outputIndex:Int, privkeyHex:String){
+        val txWithOutput =  btcWallet.wallet().walletTransactions.find {
+            it.transaction.txId.bytes.contentEquals(txhash.hexToBytes())
+        }?.transaction ?: error("could not find tx")
+
+
+        val key = ECKey.fromPrivate(privkeyHex.hexToBytes())
+
+        println("imported key hex: ${key.privateKeyAsHex}")
+        println("imported public key hex: ${key.publicKeyAsHex}")
+
+        val contract = Transaction(params)
+        contract.setVersion(2)
+        val prevTxOut =txWithOutput.outputs[outputIndex]
+        contract.addOutput(prevTxOut.value.div(10).multiply(9), btcWallet.wallet().currentReceiveAddress())
+        val originalLockScript = ScriptBuilder()
+            .op(OP_IF)
+            .number(1) // relative lock
+            .op(OP_CHECKSEQUENCEVERIFY)
+            .op(OP_DROP)
+            .data(key.pubKey) // todo
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ELSE)
+            .op(OP_SHA256)
+            .data("8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4".hexToBytes()) // for hi
+            .op(OP_EQUALVERIFY)
+            .data(key.pubKey)
+            .op(OP_CHECKSIGVERIFY)
+            .op(OP_ENDIF)
+            .build()
+        val input = contract.addInput(prevTxOut)
+        contract.inputs[0].sequenceNumber = 0xFFFF0001L xor  (1 shl 31) xor (1 shl 22)
+
+
+
+//        val hash = contract.hashForSignature(0,originalLockScript,Transaction.SigHash.ALL,false)
+        val sig = contract.calculateSignature(0,key,originalLockScript,Transaction.SigHash.ALL,false)
+        val sigscript = ScriptBuilder()
+            .op(OP_1)
+            .data(sig.encodeToBitcoin())
+            .data(secret.hexToBytes())
+            .op(OP_0)
+            .data(originalLockScript.program)
+            .build()
+
+
+        input.scriptSig = sigscript
+
+
+
+
+
+        println("tx hex: ${contract.toHexString()}")
+
+        val future = btcWallet.peerGroup().broadcastTransaction(contract).future()
+        println(future.get())
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -250,15 +360,18 @@ object ipv8Stuff {
             KeyPair.fromSecretSeed(PersistentStore.xlmKey)
         }
 
-        val walletdir = File("walletdir")
-        btcWallet =  WalletAppKit(TestNet3Params(),walletdir,"")
+        val walletdir = File("walletdir/regtest")
+        btcWallet =  WalletAppKit(params,walletdir,"")
+//        btcWallet.setBlockingStartup(true)
         btcWallet.startAsync()
+        btcWallet.awaitRunning()
+//        btcWallet.peerGroup().connectTo(InetSocketAddress("0.tcp.ngrok.io",11859))
 
 //        btcWallet = if(PersistentStore.btcKey == null || PersistentStore.btcKey!!.isBlank()){
 //            val newMnemonic = Wallet.createDeterministic(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),Script.ScriptType.P2PKH).keyChainSeed.mnemonicString
 //            PersistentStore.btcKey = newMnemonic
 //            val seed = DeterministicSeed(newMnemonic,null,"",0) // ?? creation time?
-//            WalletAppKit(TestNet3Params(),walletdir,"")
+//            WalletAppKit(_root_ide_package_.org.bitcoinj.params.params,walletdir,"")
 ////            Wallet.fromSeed(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),seed,
 ////                Script.ScriptType.P2PKH
 ////            )
@@ -269,10 +382,10 @@ object ipv8Stuff {
 //            )
 //        }
 //        val store = MemoryFullPrunedBlockStore(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),1000)
-//        val dbstore = LevelDBFullPrunedBlockStore(TestNet3Params(),"/btcdb.db",10000)
+//        val dbstore = LevelDBFullPrunedBlockStore(_root_ide_package_.org.bitcoinj.params.params,"/btcdb.db",10000)
 //        val spvfile = File("spvstore")
 //        spvfile.createNewFile()
-//        val spvstore = SPVBlockStore(TestNet3Params(), spvfile)
+//        val spvstore = SPVBlockStore(_root_ide_package_.org.bitcoinj.params.params, spvfile)
 //        val chain = BlockChain(NetworkParameters.fromID(NetworkParameters.ID_TESTNET), btcWallet,spvstore)
 //        peerGroup = PeerGroup(NetworkParameters.fromID(NetworkParameters.ID_TESTNET),chain)
 //        peerGroup.addWallet(btcWallet)

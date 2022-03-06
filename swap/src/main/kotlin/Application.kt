@@ -159,7 +159,7 @@ class MainPage : View() {
                     setOnAction {
                         coscope.launch{
                             val block = ipv8Stuff.btcWallet
-                            ipv8Stuff.tryToRefund(utx0hash.get(),index.get())
+                            ipv8Stuff.tryToRefund(utx0hash.get(),index.get(),privkeyhex.get())
                         }
                     }
                 }
