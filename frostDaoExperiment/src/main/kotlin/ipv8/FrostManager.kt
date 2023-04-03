@@ -477,6 +477,9 @@ class FrostManager(
     }
 
     private suspend fun startKeyGen(id: Long, midsOfNewGroup: List<String>, isNew: Boolean = false) = scope.launch{
+        fun cancelKeyGenJob(){
+            cancel()
+        }
         joinId = id
 
         agentSendChannel = Channel(10)
@@ -500,8 +503,12 @@ class FrostManager(
         val commitmentCbId = addKeyGenCommitmentsCallbacks{ peer, msg ->
             launch {
 //                delay(200)
-                if (!isNew && mutex.isLocked)
-                    mutex.unlock()
+                // I gues it could receive two msg almost at the same time and both of them check that the mutex is locked
+                // before unlocking?
+                kotlin.runCatching {
+                    if (!isNew && mutex.isLocked)
+                        mutex.unlock()
+                }
                 agentSendChannel.send(SchnorrAgentMessage.KeyCommitment(msg.byteArray,getIndex(peer.mid)))
             }
         }
@@ -555,6 +562,26 @@ class FrostManager(
                     }
                     is SchnorrAgentOutput.KeyGenDone -> {
                         updatesChannel.emit(Update.KeyGenDone(agentOutput.pubkey.toHex()))
+                        while (sendSemaphore.availablePermits != semaphoreMaxPermits){
+                            println("looping")
+                            delay(1000)
+                        }
+                        this@FrostManager.frostInfo = FrostGroup(
+                            (midsOfNewGroup.filter { it != networkManager.getMyPeer().mid }).map {
+                                FrostMemberInfo(
+                                    it,
+                                    getIndex(it)
+                                )
+                            },
+                            index,
+                            threshold = midsOfNewGroup.size / 2 + 1
+                        )
+
+
+                        state = FrostState.ReadyForSign
+                        //cancel when done
+                        println("cancelling Keygen process in manager")
+                        cancelKeyGenJob()
                     }
                     else -> {
                         error("RCEIVED OUTPUT FOR SIGNING WHILE DOING KEYGEN. SHOULD NOT HAPPEN")
@@ -594,25 +621,8 @@ class FrostManager(
             fail()
         }
 
+//    delay(1000)
 
-        while (sendSemaphore.availablePermits != semaphoreMaxPermits){
-            delay(1000)
-        }
-        this@FrostManager.frostInfo = FrostGroup(
-            (midsOfNewGroup.filter { it != networkManager.getMyPeer().mid }).map {
-                FrostMemberInfo(
-                    it,
-                    getIndex(it)
-                )
-            },
-            index,
-            threshold = midsOfNewGroup.size / 2 + 1
-        )
-
-
-        state = FrostState.ReadyForSign
-        //cancel when done
-        cancel()
     }
 
     // for running on pc
@@ -684,7 +694,6 @@ class FrostManager(
         var amount: Int? = null
         val cbId = addJoinRequestResponseCallback{ peer, msg ->
             if (msg.id ==id){
-                println("waited and received : $msg from peer :${peer.mid}")
                 if (amount == null){
                     amount = msg.amountOfMembers
                 }

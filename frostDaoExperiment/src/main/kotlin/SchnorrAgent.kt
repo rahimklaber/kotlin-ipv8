@@ -1,4 +1,5 @@
 import generated.*
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.coroutineScope
@@ -76,7 +77,6 @@ class SchnorrAgent(
                         param_keygen_3_msgs.add(msg)
 //                        Log.d("FROST", "enough dkg")
                         dkgSharesReceived++
-                        println(msg.fromIndex)
                         if (dkgSharesReceived == numberOfParticipants - 1)
                             notification2Mutex.unlock()
                     }
@@ -128,9 +128,11 @@ class SchnorrAgent(
         }
 
         keyWrapper = SchnorrKeyGenWrapper.key_gen_3_complete(key_gen_machine,params_keygen_3)
-        msgHandlerJob.cancel()
 
         outputChannel.send(SchnorrAgentOutput.KeyGenDone(index, keyWrapper._bitcoin_encoded_key))
+        println("sent keygen done")
+        msgHandlerJob.cancel()
+        return@coroutineScope
     }
 
     suspend fun startSigningSession(sessionId: Int, msg: ByteArray, prevoutScript: ByteArray,

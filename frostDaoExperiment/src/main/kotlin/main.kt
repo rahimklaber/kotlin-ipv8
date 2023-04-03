@@ -1,9 +1,11 @@
 import generated.SignResult2
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.selects.select
 import me.rahimklaber.frosttestapp.ipv8.FrostCommunity
 import me.rahimklaber.frosttestapp.ipv8.FrostManager
 import me.rahimklaber.frosttestapp.ipv8.NetworkManager
+import me.rahimklaber.frosttestapp.ipv8.Update
 import me.rahimklaber.frosttestapp.ipv8.message.FrostMessage
 import me.rahimklaber.frosttestapp.ipv8.message.StartKeyGenMsg
 import mu.KotlinLogging
@@ -15,13 +17,18 @@ import nl.tudelft.ipv8.peerdiscovery.DiscoveryCommunity
 import nl.tudelft.ipv8.peerdiscovery.strategy.PeriodicSimilarity
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomChurn
 import nl.tudelft.ipv8.peerdiscovery.strategy.RandomWalk
+import java.io.File
 import java.net.InetAddress
 import java.util.*
 import kotlin.math.roundToInt
+import kotlin.system.exitProcess
+import kotlin.system.measureTimeMillis
 
 
-suspend fun main() {
-    println(SignResult2::class)
+suspend fun main(args: Array<String>) {
+
+
+//    println(SignResult2::class)
     System.load("C:\\Users\\Rahim\\Desktop\\frostDaoExperimentPc\\frostDaoExperiment\\src\\lib\\rust_code.dll")
     val ipv8 = startIpv8(8093)
     val frostCommunity = ipv8.getOverlay<FrostCommunity>()!!
@@ -43,6 +50,7 @@ suspend fun main() {
                 for (i in 0..5) {
                     val x = select {
                         onTimeout(1000) {
+                            println("resending")
                             frostCommunity.sendForPublic(peer, msg)
                             false
                         }
@@ -88,6 +96,7 @@ suspend fun main() {
                         for (i in 0..5) {
                             val x = select {
                                 onTimeout(1000) {
+                                    println("resending")
                                     //todo what if this is the last iteration
                                     frostCommunity.sendForPublic(peer, msg)
                                     false
@@ -130,29 +139,88 @@ suspend fun main() {
         }
     )
 
-    GlobalScope.launch(Dispatchers.IO) {
-        while (true){
-            when(val line = readln()){
-                "keygen" -> {
-                    val peer = frostCommunity.getPeers().first { peer ->
+
+
+    if(args.isNotEmpty() && args[0] == "coordinator"){
+        val file = File("output.txt")
+        file.createNewFile()
+        GlobalScope.launch { manager.updatesChannel.collect(::println) }
+        val amountOfNodes = args[1].toInt() // amount of nodes launched ( excluding this one)
+        val processess = mutableListOf<Process>()
+        repeat(amountOfNodes){
+//            val process = Runtime.getRuntime().exec("C:\\Users\\Rahim\\Desktop\\frostDaoExperimentPc\\frostDaoExperiment\\build\\install\\frostDaoExperiment\\bin\\frostDaoExperiment.bat")
+//            processess.add(process)
+//            delay(500)
+        }
+
+        Runtime.getRuntime().addShutdownHook(Thread{
+            println("shutting down")
+            processess.forEach {
+                it.destroyForcibly()
+            }
+        })
+
+        println("waiting 10 seconds to connect to some nodes")
+//        delay(20000)
+        while(true){
+            val peers = frostCommunity.getPeers()
+            println("number of peers: ${peers.size}")
+//            println("peers: $peers")
+            println()
+            delay(3000)
+            if (peers.size >= amountOfNodes)
+                break
+        }
+        for (i in 0 until amountOfNodes){
+//            println("peers: ${frostCommunity.getPeers().map { it.mid }}")
+            println("${i}th keygen")
+            val peer = frostCommunity.getPeers().first { peer ->
                         manager.frostInfo?.members?.find {
                             peer.mid == it.peer
                         } == null
                     }
-                    frostCommunity.sendForPublic(peer, StartKeyGenMsg())
-                }
-            }
-        }
-    }
 
-    manager.updatesChannel.collect(::println)
+
+            println("next peer: ${peer.mid}")
+//            if (!) {
+//                println("sending start msg failed")
+//            }
+            frostCommunity.sendForPublic(peer, StartKeyGenMsg())
+                    val time = measureTimeMillis {
+                     manager.updatesChannel.first{
+                         it is Update.KeyGenDone
+                     }
+                    }
+                file.appendText("${i+2},$time\n")
+                println("took $time ms for ${i + 2 } nodes")
+            delay(5000)
+        }
+    }else{
+       manager.updatesChannel.collect(::println)
+    }
+//    GlobalScope.launch(Dispatchers.IO) {
+//        while (true){
+//            when(val line = readln()){
+//                "keygen" -> {
+//                    val peer = frostCommunity.getPeers().first { peer ->
+//                        manager.frostInfo?.members?.find {
+//                            peer.mid == it.peer
+//                        } == null
+//                    }
+//                    frostCommunity.sendForPublic(peer, StartKeyGenMsg())
+//                }
+//            }
+//        }
+//    }
+
 }
 
 private fun creatFrostCommunity(): OverlayConfiguration<FrostCommunity> {
-    val randomWalk = RandomWalk.Factory(timeout = 3.0, peers = 100)
+    val randomWalk = RandomWalk.Factory(timeout = 3.0, peers = 100, windowSize = 50,)
     return OverlayConfiguration(
         Overlay.Factory(FrostCommunity::class.java),
-        listOf(randomWalk)
+        listOf(randomWalk),
+        100
     )
 }
 
@@ -197,7 +265,7 @@ fun startIpv8(port: Int): IPv8 {
     val config = IPv8Configuration(
         overlays = listOf(
             creatFrostCommunity(),
-//        createDiscoveryCommunity()
+        createDiscoveryCommunity()
         ), walkerInterval = 1.0
     )
 

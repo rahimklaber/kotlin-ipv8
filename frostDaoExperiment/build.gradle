@@ -2,7 +2,7 @@ apply plugin: 'application'
 
 apply plugin: 'kotlin'
 
-mainClassName = 'me.rahimklaber.frostdao.mainKt'
+//mainClassName = 'MainKt'
 
 dependencies {
     implementation project(':ipv8-jvm')
@@ -16,6 +16,11 @@ dependencies {
     implementation 'io.github.microutils:kotlin-logging:1.7.7'
 
     implementation "com.squareup.sqldelight:sqlite-driver:$sqldelight_version"
+}
+
+application {
+    applicationDefaultJvmArgs = ['-Dorg.slf4j.simpleLogger.defaultLogLevel=error', '-Xmx64m', '-Dkotlinx.coroutines.default.parallelism=3']
+    mainClass = 'MainKt'
 }
 
 run {

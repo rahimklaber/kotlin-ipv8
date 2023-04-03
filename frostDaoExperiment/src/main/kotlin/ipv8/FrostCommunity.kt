@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import me.rahimklaber.frosttestapp.ipv8.message.*
 import nl.tudelft.ipv8.Community
 import nl.tudelft.ipv8.Peer
@@ -73,15 +75,20 @@ class FrostCommunity: Community() {
 
     var onAckCbId = 0;
     val onAckCallbacks= mutableMapOf<Int,suspend (peer: Peer,ack:Ack)->Unit>()
+    private val ackCbMutex = Mutex()
     //todo, check if we need to lock
-    fun addOnAck(cb: suspend (peer: Peer,ack:Ack)->Unit) : Int{
-       val id = onAckCbId++;
-       onAckCallbacks[id]  = cb
-        return id
+    suspend fun addOnAck(cb: suspend (peer: Peer,ack:Ack)->Unit) : Int{
+      ackCbMutex.withLock {
+          val id = onAckCbId++;
+          onAckCallbacks[id]  = cb
+          return id
+      }
     }
 
-    fun removeOnAck(id: Int){
-        onAckCallbacks.remove(id)
+    suspend fun removeOnAck(id: Int){
+        ackCbMutex.withLock {
+            onAckCallbacks.remove(id)
+        }
     }
 
     init {
@@ -174,7 +181,11 @@ class FrostCommunity: Community() {
 
         messageHandlers[Ack.MESSAGE_ID] = {packet ->
             val (peer,msg) = packet.getAuthPayload(Ack.Deserializer)
-            onAckCallbacks.forEach { (i, callback) -> scope.launch(Dispatchers.Default){  callback(peer,msg) }}
+            scope.launch(Dispatchers.Default) {
+                ackCbMutex.withLock {
+                    onAckCallbacks.forEach { (i, callback) -> scope.launch(Dispatchers.Default){  callback(peer,msg) }}
+                }
+            }
         }
     }
 
