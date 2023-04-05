@@ -70,7 +70,7 @@ abstract class Community : Overlay {
         network.blacklist.addAll(DEFAULT_ADDRESSES)
 
         job = SupervisorJob()
-        scope = CoroutineScope(Dispatchers.Main + job)
+        scope = CoroutineScope(Dispatchers.Default + job)
 
         if (evaProtocolEnabled)
             evaProtocol = EVAProtocol(this, scope)
@@ -522,7 +522,7 @@ abstract class Community : Overlay {
         }
     }
 
-    protected fun addVerifiedPeer(peer: Peer) {
+    /*protected */fun addVerifiedPeer(peer: Peer) {
         network.addVerifiedPeer(peer)
         network.discoverServices(peer, listOf(serviceId))
     }

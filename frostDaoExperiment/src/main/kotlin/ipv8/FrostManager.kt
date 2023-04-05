@@ -1,5 +1,6 @@
 package me.rahimklaber.frosttestapp.ipv8
 
+import FIleLogger
 import SchnorrAgent
 import SchnorrAgentMessage
 import SchnorrAgentOutput
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import me.rahimklaber.frosttestapp.ipv8.message.*
 import mu.KotlinLogging
 import nl.tudelft.ipv8.Peer
@@ -197,7 +199,7 @@ class FrostManager(
 //                    Log.d("FROST", "received msg in frostmanager ${it.second}")
                     if (it.second is StartKeyGenMsg){
                         logger.info { "received cmd to start keygen" }
-                       launch {
+                       scope.launch(Dispatchers.IO) {
                            joinGroupBenchmark(it.first)
                        }
                         return@collect
@@ -500,25 +502,44 @@ class FrostManager(
         agent = SchnorrAgent(amount,index,midsOfNewGroup.size / 2 + 1, agentSendChannel, agentReceiveChannel)
 
         val mutex = Mutex(true)
+        val mutexForCount = Mutex()
+        var commitmentsReceived = 0
+        var sharesReceived = 0
+
+        var commitmentsSent = 0
+        var sharesSent = 0
+
         val commitmentCbId = addKeyGenCommitmentsCallbacks{ peer, msg ->
             launch {
+                mutexForCount.withLock {
+                    commitmentsReceived+=1
+                }
+                agentSendChannel.send(SchnorrAgentMessage.KeyCommitment(msg.byteArray,getIndex(peer.mid)))
 //                delay(200)
                 // I gues it could receive two msg almost at the same time and both of them check that the mutex is locked
                 // before unlocking?
                 kotlin.runCatching {
                     if (!isNew && mutex.isLocked)
                         mutex.unlock()
+                }.getOrElse {
+                    launch { FIleLogger("${networkManager.getMyPeer().mid}:  exception when dealing with mutex: $it: msg: $msg") }
                 }
-                agentSendChannel.send(SchnorrAgentMessage.KeyCommitment(msg.byteArray,getIndex(peer.mid)))
             }
         }
         val shareCbId = addKeyGenShareCallback { peer, keyGenShare ->
             launch {
-//                delay(200)
+                mutexForCount.withLock {
+                    sharesReceived+=1
+                }
+                delay(200)
                 agentSendChannel.send(SchnorrAgentMessage.DkgShare(keyGenShare.byteArray,getIndex(peer.mid)))
             }
         }
         fun fail(){
+           launch {
+               FIleLogger("${networkManager.getMyPeer().mid}:  fail was called.")
+               delay(100)
+           }
             state = if (isNew){
                 FrostState.ReadyForKeyGen
             }else{
@@ -534,11 +555,13 @@ class FrostManager(
         }
         val semaphoreMaxPermits = midsOfNewGroup.size
         val sendSemaphore = Semaphore(semaphoreMaxPermits,)
+
         launch {
             for (agentOutput in agentReceiveChannel) {
 //                Log.d("FROST", "sending $agentOutput")
                 when(agentOutput){
                     is SchnorrAgentOutput.DkgShare -> {
+
                        scope.launch {
                             sendSemaphore.acquire()
                            val ok = networkManager.send(
@@ -546,24 +569,45 @@ class FrostManager(
                                KeyGenShare(joinId, agentOutput.share)
                            )
                         sendSemaphore.release()
-                           if(!ok)
+                           if(!ok){
+                               println("send failed when sending dkg share")
+                               FIleLogger("${networkManager.getMyPeer().mid}:  send failed when sending dkg share")
                                fail()
+                           }
+                           mutexForCount.withLock {
+                               sharesSent +=1
+                           }
 
                        }
                     }
                     is SchnorrAgentOutput.KeyCommitment -> {
+
                        scope.launch {
                         sendSemaphore.acquire()
-                           val ok = networkManager.broadcast(KeyGenCommitments(joinId, agentOutput.commitment))
+                           val commitment = KeyGenCommitments(joinId, agentOutput.commitment)
+                           val ok = networkManager.broadcast(commitment,
+                               (midsOfNewGroup  - networkManager.getMyPeer().mid)
+                                   .map {
+                                       networkManager.getPeerFromMid(it)
+                                   }
+                           )
                             sendSemaphore.release()
-                        if(!ok)
-                               fail()
+//                           FIleLogger("sending $commitment, size: ${commitment.serialize().size} bytes")
+                        if(!ok) {
+                            println("broadcast failed when sending keycommitment")
+                            FIleLogger("${networkManager.getMyPeer().mid}: broadcast failed when sending keycommitment")
+                            fail()
+                        }
+                           mutexForCount.withLock {
+                               commitmentsSent +=1
+                           }
                        }
                     }
                     is SchnorrAgentOutput.KeyGenDone -> {
                         updatesChannel.emit(Update.KeyGenDone(agentOutput.pubkey.toHex()))
                         while (sendSemaphore.availablePermits != semaphoreMaxPermits){
-                            println("looping")
+//                            println("looping")
+                            FIleLogger("${networkManager.getMyPeer().mid}:  Looping; waiting for ${semaphoreMaxPermits - sendSemaphore.availablePermits}")
                             delay(1000)
                         }
                         this@FrostManager.frostInfo = FrostGroup(
@@ -580,7 +624,7 @@ class FrostManager(
 
                         state = FrostState.ReadyForSign
                         //cancel when done
-                        println("cancelling Keygen process in manager")
+//                        println("cancelling Keygen process in manager")
                         cancelKeyGenJob()
                     }
                     else -> {
@@ -600,7 +644,15 @@ class FrostManager(
 //                    updatesChannel.emit(Update.TimeOut(id))
 //                }
 //                cancel()
+                FIleLogger("${networkManager.getMyPeer().mid} : didn't receive signal to start")
                 fail()
+            }
+        }
+        launch {
+            while(true){
+                delay(10000)
+                println("${networkManager.getMyPeer().mid}: frostgroup size: ${frostInfo?.amount ?: "no group"} commitments receved: $commitmentsReceived, shares received: $sharesReceived, commitments sents: $commitmentsSent, shares sent: $sharesSent")
+                delay(70000)
             }
         }
         val keygenDone = withTimeoutOrNull(KEYGEN_TIMEOUT_MILLIS){
@@ -618,6 +670,7 @@ class FrostManager(
 //                FrostState.ReadyForSign
 //            }
 //            cancel()
+            FIleLogger("${networkManager} : timeout. Keygen didn't finish in time" )
             fail()
         }
 
@@ -834,8 +887,8 @@ class FrostManager(
     }
 
     companion object{
-        const val SIGN_TIMEOUT_MILLIS = 10 * 60 * 1000L
-        const val KEYGEN_TIMEOUT_MILLIS = 10 * 60 * 1000L
+        const val SIGN_TIMEOUT_MILLIS = 10  *60 * 1000L
+        const val KEYGEN_TIMEOUT_MILLIS = 10  *60 * 1000L
         const val WAIT_FOR_KEYGEN_TIMEOUT_MILLIS = 5 * 60 * 1000L
         const val WAIT_FOR_INITIAL_PREPROCESS_MILLIS = 5 * 60 * 1000L
         // const val timeout ...

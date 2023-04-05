@@ -1,5 +1,6 @@
 package me.rahimklaber.frosttestapp.ipv8
 
+import FIleLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -187,10 +188,31 @@ class FrostCommunity: Community() {
                 }
             }
         }
+        evaProtocolEnabled = true
     }
 
     override fun load() {
         super.load()
+        setOnEVAErrorCallback{ peer, exception ->
+           scope.launch {
+               FIleLogger("eva error: $exception")
+           }
+        }
+        setOnEVAReceiveCompleteCallback { peer, info, id, data ->
+            scope.launch {
+                FIleLogger("received eva stuff")
+            }
+            if (data == null){
+               return@setOnEVAReceiveCompleteCallback
+            }
+            if (info!= EVA_FROST_DAO_attachment)
+                return@setOnEVAReceiveCompleteCallback
+            data.let {
+                val packet = Packet(peer.address,data.takeInRange(1,data.size))
+
+                messageHandlers[data[0].toInt()]?.let { it1 -> it1(packet) }
+            }
+        }
         scope.launch(Dispatchers.Default) {
             _channel.collect {(peer, msg) ->
                 val contains = received.containsKey(peer.mid to msg.hashCode())
@@ -202,6 +224,7 @@ class FrostCommunity: Community() {
         }
         scope.launch(Dispatchers.Default){
             _channel.collect{(peer,msg)->
+                    FIleLogger("Sending ack for $msg")
                     sendAck(peer, Ack(msg.hashCode()))
             }
         }
@@ -223,7 +246,7 @@ class FrostCommunity: Community() {
     }
 
 
-    fun sendEva(peer: Peer, msg: FrostMessage){
+    fun sendEva (peer: Peer, msg: FrostMessage){
         val id = messageIdFromMsg(msg)
         val packet = listOf(id.toByte()) + serializePacket(id,msg).toList()
         evaSendBinary(peer, EVA_FROST_DAO_attachment,"${msg.id}$id",packet.toByteArray())
@@ -241,7 +264,7 @@ class FrostCommunity: Community() {
     val sent = mutableMapOf<Pair<String,Int>,Boolean>()
     val received  = mutableMapOf<Pair<String,Int>,Boolean>()
     // better name lol
-    fun sendForPublic(peer: Peer, msg: FrostMessage) {
+    suspend fun sendForPublic(peer: Peer, msg: FrostMessage) {
 //        Log.d("FROST", "sending msg $msg in community")
         val id = messageIdFromMsg(msg)
         val packet = serializePacket(id,msg)
@@ -250,7 +273,12 @@ class FrostCommunity: Community() {
 //
 //            }
 //        }
-        send(peer,packet)
+        if(msg.serialize().size < 1000){
+            send(peer,packet)
+        }else{
+            FIleLogger("sending eva")
+            sendEva(peer,msg)
+        }
         sent[peer.mid to msg.hashCode()] = true
 
     }

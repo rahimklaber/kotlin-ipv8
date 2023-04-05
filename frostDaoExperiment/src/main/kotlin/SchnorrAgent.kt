@@ -130,7 +130,7 @@ class SchnorrAgent(
         keyWrapper = SchnorrKeyGenWrapper.key_gen_3_complete(key_gen_machine,params_keygen_3)
 
         outputChannel.send(SchnorrAgentOutput.KeyGenDone(index, keyWrapper._bitcoin_encoded_key))
-        println("sent keygen done")
+//        println("sent keygen done")
         msgHandlerJob.cancel()
         return@coroutineScope
     }
