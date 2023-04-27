@@ -273,7 +273,7 @@ class FrostCommunity: Community() {
 //
 //            }
 //        }
-        if(msg.serialize().size < 1000){
+        if(msg.serialize().size < 1300){
             send(peer,packet)
         }else{
             FIleLogger("sending eva")

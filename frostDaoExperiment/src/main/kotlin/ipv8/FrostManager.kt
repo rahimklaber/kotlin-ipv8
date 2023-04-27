@@ -245,7 +245,7 @@ class FrostManager(
 //        state = FrostState.ProposedSign(signId)
 
          scope.launch {
-            withTimeout(10*60*1000/*10 minutes timeout todo make it configurable*/) {
+            val ok = withTimeoutOrNull(60*1000/*10 minutes timeout todo make it configurable*/) {
                 var responseCounter = 0
                 val mutex = Mutex(true)
                 val participatingIndices = mutableListOf<Int>()
@@ -266,7 +266,8 @@ class FrostManager(
                 val broadcastOk = networkManager.broadcast(SignRequest(signId, data))
                 if (!broadcastOk){
                     updatesChannel.emit(Update.TimeOut(signId))
-                    return@withTimeout
+                    println("${networkManager.getMyPeer().mid}: failed to broadcast signrequest")
+                    return@withTimeoutOrNull
                 }
                 mutex.lock()// make sure that enough peeps are available
 
@@ -286,6 +287,10 @@ class FrostManager(
                     ))
                 )
             }
+             if(ok == null){
+                 updatesChannel.emit(Update.TimeOut(1L))
+                 println("${networkManager.getMyPeer().mid}: Timed out signing")
+             }
         }
 
 
@@ -373,7 +378,7 @@ class FrostManager(
             if (msg.id  != signId)
                 return@addSignShareCallback
             launch {
-                delay(200)
+//                delay(200)
                 agentSendChannel.send(
                     SchnorrAgentOutput.SignShare(
                         msg.bytes,
@@ -387,7 +392,7 @@ class FrostManager(
                 return@addPreprocessCallabac
             }
             launch {
-                delay(200)
+//                delay(200)
                 if (!isProposer && mutex.isLocked && preprocess.participants.isNotEmpty()) { // only the init message has size > 0
                     mutex.unlock()
                     participantIndices.addAll(preprocess.participants)
@@ -499,7 +504,7 @@ class FrostManager(
 
         val index = getIndex(networkManager.getMyPeer().mid)
 
-        agent = SchnorrAgent(amount,index,midsOfNewGroup.size / 2 + 1, agentSendChannel, agentReceiveChannel)
+        agent = SchnorrAgent(amount,index,midsOfNewGroup.size, agentSendChannel, agentReceiveChannel)
 
         val mutex = Mutex(true)
         val mutexForCount = Mutex()
@@ -618,7 +623,7 @@ class FrostManager(
                                 )
                             },
                             index,
-                            threshold = midsOfNewGroup.size / 2 + 1
+                            threshold = midsOfNewGroup.size
                         )
 
 
@@ -648,13 +653,13 @@ class FrostManager(
                 fail()
             }
         }
-        launch {
-            while(true){
-                delay(10000)
-                println("${networkManager.getMyPeer().mid}: frostgroup size: ${frostInfo?.amount ?: "no group"} commitments receved: $commitmentsReceived, shares received: $sharesReceived, commitments sents: $commitmentsSent, shares sent: $sharesSent")
-                delay(70000)
-            }
-        }
+//        launch {
+//            while(true){
+//                delay(10000)
+//                println("${networkManager.getMyPeer().mid}: frostgroup size: ${frostInfo?.amount ?: "no group"} commitments receved: $commitmentsReceived, shares received: $sharesReceived, commitments sents: $commitmentsSent, shares sent: $sharesSent")
+//                delay(70000)
+//            }
+//        }
         val keygenDone = withTimeoutOrNull(KEYGEN_TIMEOUT_MILLIS){
             agent!!.startKeygen()
         }
@@ -872,6 +877,8 @@ class FrostManager(
             FrostState.ReadyForSign -> {
                 scope.launch {
                     updatesChannel.emit(Update.SignRequestReceived(msg.id,peer.mid,msg.data))
+                    //To make it easier when benchmarking
+                    acceptProposedSign(msg.id,peer.mid,msg.data)
 //                    updatesChannel.emit(Update.TextUpdate("startet sign"))
 //                    networkManager.send(peer,SignRequestResponse(msg.id,true))
 //                    startSign(msg.id,msg.data)
@@ -887,10 +894,10 @@ class FrostManager(
     }
 
     companion object{
-        const val SIGN_TIMEOUT_MILLIS = 10  *60 * 1000L
-        const val KEYGEN_TIMEOUT_MILLIS = 10  *60 * 1000L
-        const val WAIT_FOR_KEYGEN_TIMEOUT_MILLIS = 5 * 60 * 1000L
-        const val WAIT_FOR_INITIAL_PREPROCESS_MILLIS = 5 * 60 * 1000L
+        const val SIGN_TIMEOUT_MILLIS = 2  *60 * 1000L
+        const val KEYGEN_TIMEOUT_MILLIS = 2  *60 * 1000L
+        const val WAIT_FOR_KEYGEN_TIMEOUT_MILLIS = 2 * 60 * 1000L
+        const val WAIT_FOR_INITIAL_PREPROCESS_MILLIS = 2 * 60 * 1000L
         // const val timeout ...
     }
 
